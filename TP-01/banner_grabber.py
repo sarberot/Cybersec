@@ -32,10 +32,6 @@ def grab_banner(host, port, output_file):
             with open(output_file, "a") as file:
                 file.write(result_str + "\n")
 
-        else:
-            # Si le résultat n'est pas 0, le port est fermé ou inactif
-            print(f"[-] Port {port} fermé ou inactif")
-
         # Fermeture de la socket après utilisation
         sock.close()
 
