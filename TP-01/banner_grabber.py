@@ -12,28 +12,35 @@ def grab_banner(host, port, output_file):
         sock.settimeout(1)
 
         # Tentative de connexion sur le port
-        sock.connect((host, port))
+        result = sock.connect_ex((host, port))
 
-        # Tentative de recevoir une bannière (max 1024 octets)
-        banner = sock.recv(1024).decode().strip()
+        # Si le résultat est 0, cela signifie que le port est ouvert
+        if result == 0:
+            # Tentative de récupérer la bannière (max 1024 octets)
+            banner = sock.recv(1024).decode().strip()
 
-        # Si on récupère une bannière, on l'affiche et on l'écrit dans le fichier
-        if banner:
-            result = f"[+] Port {port} ouvert - Service détecté : {banner}"
+            # Si une bannière est reçue, on l'affiche et on l'enregistre dans le fichier
+            if banner:
+                result_str = f"[+] Port {port} ouvert - Service détecté : {banner}"
+            else:
+                result_str = f"[+] Port {port} ouvert - Pas de bannière détectée"
+
+            # Affichage du résultat à l'écran
+            print(result_str)
+
+            # Sauvegarde du résultat dans le fichier
+            with open(output_file, "a") as file:
+                file.write(result_str + "\n")
+
         else:
-            result = f"[+] Port {port} ouvert - Pas de bannière détectée"
-
-        print(result)
-
-        # Sauvegarde dans le fichier
-        with open(output_file, "a") as file:
-            file.write(result + "\n")
+            # Si le résultat n'est pas 0, le port est fermé ou inactif
+            print(f"[-] Port {port} fermé ou inactif")
 
         # Fermeture de la socket après utilisation
         sock.close()
 
     except socket.timeout:
-        pass  # Ignore si la connexion a échoué pour timeout
+        pass  # Ignore les erreurs de timeout (aucune réponse du port)
     except Exception as e:
         print(f"[-] Erreur sur le port {port}: {e}")
 
