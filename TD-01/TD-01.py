@@ -1,22 +1,22 @@
 # Scanner de port
 import threading
-from socket import socket
+import socket  # Importation du module socket complet
 import time
 
 # Définir une fonction qui va tester un port spécifique
 def scan_port(host, port):
     try:
         # Création d'un objet socket
-        sock = socket(socket.AF_INET, socket.SOCK_STREAM)
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)  # Utilisation de 'socket' pour éviter les conflits
         # Définir un délai pour éviter le TIMEOUT et le blocage
-        sock.settimeout(1)
+        s.settimeout(1)
         # Tentative de connexion sur le port (0 si la connexion a réussi)
-        result = sock.connect_ex((host, port))
+        result = s.connect_ex((host, port))
         # Si le port est ouvert (result == 0), on l'affiche
         if result == 0:
             print(f"[+] Port {port} is open")
         # On ferme le socket
-        sock.close()
+        s.close()
     except Exception as e:
         # Gestion des erreurs
         print(f"[-] Erreur sur le port {port}: {e}")
