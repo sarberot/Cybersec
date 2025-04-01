@@ -13,7 +13,7 @@ DICTIONARY_PATH = r"C:\Users\stagiaire\Documents\cours cyber\github\Cybersec\TP-
 THREAD_LIMIT = 50
 SSH_TIMEOUT = 5
 SCAN_TIMEOUT = 1
-SSH_USERNAME = "root"  # Compte cible pour le brute force
+SSH_USERNAME = "doranco"  # Compte cible pour le brute force
 
 
 def install_dependencies():
