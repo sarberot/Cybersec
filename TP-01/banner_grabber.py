@@ -32,6 +32,26 @@ def grab_banner(host, port, output_file):
             with open(output_file, "a") as file:
                 file.write(result_str + "\n")
 
+            # Si c'est un serveur web, tenter une requête HEAD (pour les ports 80 et 443)
+            if port == 80 or port == 443:
+                try:
+                    # Envoi de la requête HEAD
+                    http_request = "HEAD / HTTP/1.1\r\nHost: {}\r\n\r\n".format(host)
+                    sock.sendall(http_request.encode())
+
+                    # Récupération de la réponse HTTP (en-têtes)
+                    response = sock.recv(1024).decode().strip()
+
+                    if response:
+                        # Vérification des codes de réponse pour identifier un serveur web
+                        if "HTTP" in response:
+                            print(f"[+] Port {port} est un serveur Web - Réponse: {response}")
+                            with open(output_file, "a") as file:
+                                file.write(f"[+] Port {port} est un serveur Web - Réponse: {response}\n")
+
+                except socket.timeout:
+                    pass  # Ignore si aucune réponse ou timeout sur la requête HEAD
+
         # Fermeture de la socket après utilisation
         sock.close()
 
