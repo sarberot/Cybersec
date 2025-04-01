@@ -1,38 +1,47 @@
-## Scanner de port
+# Scanner de port
 import threading
-from logging import exception
 from socket import socket
-from threading import Thread
+import time
 
-import sock
-
-
-#Definir une fonction qui va tester un port specifique
+# Définir une fonction qui va tester un port spécifique
 def scan_port(host, port):
     try:
-        #creaion d'un objet socket
-        socket(socket.AF_INET, socket.SOCK_STREAM)
-        #Definir un delais pour éviter le TIMEOUT et le blocage
+        # Création d'un objet socket
+        sock = socket(socket.AF_INET, socket.SOCK_STREAM)
+        # Définir un délai pour éviter le TIMEOUT et le blocage
         sock.settimeout(1)
-        #Tentative de connexion sur le port ( 0 si la connexion a reussit)
-        result = socket.connect_ex((host, port))
-        # Si le port est ouvert ( result == 0), on l'affiche
+        # Tentative de connexion sur le port (0 si la connexion a réussi)
+        result = sock.connect_ex((host, port))
+        # Si le port est ouvert (result == 0), on l'affiche
         if result == 0:
-            print(f"[+]Port {port} is open")
-        # on ferme le socket
+            print(f"[+] Port {port} is open")
+        # On ferme le socket
         sock.close()
-    except exception as e:
-        #Gestion des erreurs
+    except Exception as e:
+        # Gestion des erreurs
         print(f"[-] Erreur sur le port {port}: {e}")
-    #On demande a  l'utilisateur  l'adresse ip de la cible
-target = input("entrez l'adresse ip a scanner")
 
-#on demande la plage d'adresse a scanner
-start_port = int(input("port de debut"))
-end_port = int(input("port de fin"))
-#on informe l'utilisateur qu'on commence le sca,
-print(f"\n[***] Scan target {target} sur les ports {start_port} à {end_port} [***]\n")
-for port in range(start_port, end_port+1):
-    #on creer un thread ( execution parallele) pour chaque port
+# Demander à l'utilisateur l'adresse IP de la cible
+target = input("Entrez l'adresse IP à scanner: ")
+
+# Demander la plage de ports à scanner
+start_port = int(input("Port de début: "))
+end_port = int(input("Port de fin: "))
+
+# Informer l'utilisateur qu'on commence le scan
+print(f"\n[***] Scan de la cible {target} sur les ports {start_port} à {end_port} [***]\n")
+
+# Liste des threads
+threads = []
+
+# Lancer un thread pour chaque port
+for port in range(start_port, end_port + 1):
     t = threading.Thread(target=scan_port, args=(target, port))
+    threads.append(t)
     t.start()
+
+# Attendre que tous les threads finissent
+for t in threads:
+    t.join()
+
+print("\nScan terminé.")
