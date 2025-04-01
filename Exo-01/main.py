@@ -2,7 +2,7 @@ import platform
 #on demande à l'utilisateur de nous fournir l'IP
 import subprocess
 
-#demander une adresse IP à l'utilisateur
+#demander une adresse IP à l'utilisateur192.168.45.1
 ip = input("entrez une adresse ip a ping:")
 #on detecte l'os pour adapter la commande
 param = "-n" if platform.system().lower() == "Windows" else "-c"
